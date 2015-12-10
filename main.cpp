@@ -12,7 +12,8 @@
 
 #include "polymorphic_container.h"
 
-constexpr auto gHowMany = 50000;
+constexpr auto gHowManyElements = 5000;
+constexpr auto gSampleSize = 50000;
 
 struct PolymorphicBase
 {
@@ -101,6 +102,7 @@ struct Ten : public PolymorphicBase
     }
 };
 
+
 template <typename Head = void>
 std::unique_ptr<PolymorphicBase> createTypeFromIndex(std::size_t)
 {
@@ -119,25 +121,33 @@ std::unique_ptr<PolymorphicBase> createTypeFromIndex(std::size_t index)
     return createTypeFromIndex<Next, Tail...>(index-1);
 }
 
-template <typename Head = void>
-auto createPolyTypeFromIndex(std::size_t)
+template <typename PolyContainerType, typename Head = void>
+void addElementToPolyContainer(PolyContainerType & container, std::size_t)
 {
     static_assert(!std::is_same<Head, void>::value, "Can't have an empty type list!");
     std::cout << "only one" << std::endl;
-    return std::unique_ptr<Head>{new Head{}};
+    //std::unique_ptr<Head>{new Head{}};
+    container.push_back(std::make_unique<Head>());
+
+    std::cout << "added" << std::endl;
 }
 
-template <typename Head, typename Next, typename... Tail>
-auto createPolyTypeFromIndex(std::size_t index)
+template <typename PolyContainerType, typename Head, typename Next, typename... Tail>
+void addElementToPolyContainer(PolyContainerType & container, std::size_t index)
 {
-std::cout << index << std::endl;
+std::cout << "Looking for right type: " << index << std::endl;
 
     if (index == 0)
     {
-        return std::unique_ptr<Head>{new Head{}};
+        //return std::unique_ptr<Head>{new Head{}};
+        //return std::make_unique<Head>();
+        container.push_back(std::make_unique<Head>());
+        std::cout << "added" << std::endl;
+        return;
     }
 
-    return createPolyTypeFromIndex<Next, Tail...>(index-1);
+    addElementToPolyContainer<PolyContainerType, Next, Tail...>(container, index-1);
+
 }
 
 
@@ -145,7 +155,7 @@ std::cout << index << std::endl;
 template <typename DistributionType, typename... ConcreteTypes>
 std::vector<std::unique_ptr<PolymorphicBase>> createRandomVector (DistributionType & distribution)
 {
-    auto v = std::vector<std::unique_ptr<PolymorphicBase>>{gHowMany};
+    auto v = std::vector<std::unique_ptr<PolymorphicBase>>{gHowManyElements};
 
     //std::uniform_int_distribution<> distribution{0, sizeof...(ConcreteTypes) - 1};
     std::mt19937 engine{};
@@ -162,19 +172,20 @@ std::vector<std::unique_ptr<PolymorphicBase>> createRandomVector (DistributionTy
 template <typename DistributionType, typename... ConcreteTypes>
 polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<ConcreteTypes>...> createRandomPolyVector (DistributionType & distribution)
 {
-    auto v = polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<ConcreteTypes>...>{}; // gHowMany ???
+    auto v = polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<ConcreteTypes>...>{}; // gHowManyElements ???
 
-    std::cout << "Say What" << std::endl;
+    //std::cout << "Say What" << std::endl;
 
     std::mt19937 engine{};
 
-    for (auto i = 0; i < 1; ++i)
+    for (auto i = 0; i < gSampleSize; ++i)
     {
         const auto which = std::lround(distribution(engine));
-        auto p = createPolyTypeFromIndex<ConcreteTypes...>(which);
-        std::cout << "Doing " << i << std::endl;
-        //v.push_back(createPolyTypeFromIndex<ConcreteTypes...>(which));
-        v.push_back(p);
+        //auto p = addElementToPolyContainer<ConcreteTypes...>(which);
+        //std::cout << "Doing " << i << std::endl;
+        addElementToPolyContainer<decltype(v), ConcreteTypes...>(v, which);
+        //std::cout << "Done with " << i << std::endl;
+        //v.push_back(p);
     }
 /*
     std::generate(v.begin(), v.end(), [&]()
@@ -183,6 +194,8 @@ polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<Concrete
         return createTypeFromIndex<ConcreteTypes...>(which);
     });
     */
+
+//std::cout << "Made the vector yo" << std::endl;
 
     return v;    
 }
@@ -209,40 +222,100 @@ auto countTypes (std::vector<std::unique_ptr<PolymorphicBase>> const & v)
     return std::tuple_cat(std::make_tuple(count), countTypes<Next, Tail...>(v));
 }
 
-template <typename Head>
-std::tuple<long> countPolyTypes (polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<Head>> const & v)
+template <typename TupleType>
+void printTypeDistributionImpl (const TupleType & t)
 {
+}
+
+template <typename TupleType, typename Head, typename... Tail>
+void printTypeDistributionImpl (const TupleType & t)
+{
+    constexpr auto index = std::tuple_size<TupleType>::value - (sizeof...(Tail) + 1);
+
+    std::cout << typeid(Head).name() << ": " << std::get<index>(t) << "\n";
+
+    printTypeDistributionImpl<TupleType, Tail...>(t);
+}
+
+template <typename TupleType, typename Head, typename... Tail>
+void printTypeDistribution (const TupleType & t)
+{
+    static_assert(sizeof...(Tail) + 1 == std::tuple_size<TupleType>::value, "Tuple is not same length as type list");
+
+    printTypeDistributionImpl<TupleType, Head, Tail...>(t);
+}
+
+
+template <typename Head>
+std::tuple<long> countPolyTypes (polymorphic_container<std::unique_ptr<PolymorphicBase>,
+                                                       std::unique_ptr<Head>> const & v)
+{
+   long count = 0;
+
+   for (auto i = v.begin(); i != v.end(); i++) // TODO preincrement is broken;
+   {
+       i.printState();
+
+       if (dynamic_cast<Head*>((*i).get()) != nullptr)
+       {
+           count++;
+       }
+   }
+
+/* For some reason this doesn't work with my jankity iterator implementation
+
     auto count = std::count_if(v.begin(), v.end(), [](std::unique_ptr<PolymorphicBase> const & p)
     {
+//        std::cout << "Counting" << std::endl;
         return dynamic_cast<Head*>(p.get()) != nullptr;
     });
+*/
+
     return std::make_tuple(count);
 }
 
 template <typename Head, typename Next, typename... Tail>
-auto countPolyTypes (polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<Head>, std::unique_ptr<Next>, std::unique_ptr<Tail>...> const & v)
-    -> decltype(std::tuple_cat(std::make_tuple(1L), countTypes<Next, Tail...>(v)))
+auto countPolyTypes (polymorphic_container<std::unique_ptr<PolymorphicBase>,
+                                           std::unique_ptr<Head>,
+                                           std::unique_ptr<Next>,
+                                           std::unique_ptr<Tail>...> const & v)
+//    -> decltype(std::tuple_cat(std::make_tuple(1L), countPolyTypes<Next, Tail...>(v)))
 {
-    auto count = std::count_if(v.begin(), v.end(), [](std::unique_ptr<PolymorphicBase> const & p)
+   long count = 0;
+
+   for (auto i = v.begin(); i != v.end(); i++) // TODO preincrement is broken;
+   {
+       i.printState();
+
+       if (dynamic_cast<Head*>((*i).get()) != nullptr)
+       {
+           count++;
+       }
+   }
+
+/*
+    auto count = std::count_if(v.cbegin(), v.cend(), [](std::unique_ptr<PolymorphicBase> const & p)
     {
         return dynamic_cast<Head*>(p.get()) != nullptr;
     });
+*/
 
     return std::tuple_cat(std::make_tuple(count), countPolyTypes<Next, Tail...>(v));
 }
 
-template <typename DistributionType>
-void testOneType(DistributionType & distribution)
+
+template <typename DistributionType, typename... ConcreteTypes>
+void testStandardVector (DistributionType & distribution)
 {
-    auto v = createRandomVector<decltype(distribution), One>(distribution);
+    auto v = createRandomVector<decltype(distribution), ConcreteTypes...>(distribution);
 
-    auto counts = countTypes<One>(v);
+    auto counts = countTypes<ConcreteTypes...>(v);
 
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    constexpr auto loopCount = 500;
+    printTypeDistribution<decltype(counts), ConcreteTypes...>(counts);
+
     auto total = 0UL;
 
-    for (auto x = 0; x < loopCount; ++x)
+    for (auto x = 0; x < gSampleSize; ++x)
     {
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -255,29 +328,31 @@ void testOneType(DistributionType & distribution)
         total += duration.count();
     }
 
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
+    std::cout << "Average Duration: " << total/gSampleSize << "\n" << std::endl;
 }
 
-template <typename DistributionType>
-void testOnePolyType(DistributionType & distribution)
+template <typename DistributionType, typename... ConcreteTypes>
+void testPolyContainer(DistributionType & distribution)
 {
-    std::cout << "Oh Please" << std::endl;
-    auto v = createRandomPolyVector<DistributionType, One>(distribution);
+    //std::cout << "Oh Please" << std::endl;
+    auto v = createRandomPolyVector<DistributionType, ConcreteTypes...>(distribution);
 
-    auto counts = countPolyTypes<One>(v);
+//std::cout << "Shall we count" << std::endl;
+    auto counts = countPolyTypes<ConcreteTypes...>(v);
 
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    constexpr auto loopCount = 500;
+//std::cout << "Maybe we print" << std::endl;
+    printTypeDistribution<decltype(counts), ConcreteTypes...>(counts);
+
     auto total = 0UL;
 
-    for (auto x = 0; x < loopCount; ++x)
+    for (auto x = 0; x < gSampleSize; ++x)
     {
         auto start = std::chrono::high_resolution_clock::now();
 
         auto end = v.end();
 
-        for (auto i = v.begin(); i != end; ++i) {
-            i.printState();
+        for (auto i = v.begin(); i != end; i++) {
+            //i.printState();
             (*i)->operation();
         }
 
@@ -286,226 +361,84 @@ void testOnePolyType(DistributionType & distribution)
         total += duration.count();
     }
 
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
-}
-
-template <typename DistributionType>
-void testTwoTypes(DistributionType & distribution)
-{
-    auto v = createRandomVector<decltype(distribution), One, Two>(distribution);
-
-    auto counts = countTypes<One, Two>(v);
-
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    std::cout << "Twos: " << std::get<1>(counts) << "\n";
-    constexpr auto loopCount = 500;
-    auto total = 0UL;
-
-    for (auto x = 0; x < loopCount; ++x)
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        for (auto const &i : v) {
-            i->operation();
-        }
-
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        total += duration.count();
-    }
-
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
-}
-
-template <typename DistributionType>
-void testThreeTypes(DistributionType & distribution)
-{
-    auto v = createRandomVector<decltype(distribution), One, Two, Three>(distribution);
-
-    auto counts = countTypes<One, Two, Three>(v);
-
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    std::cout << "Twos: " << std::get<1>(counts) << "\n";
-    std::cout << "Three: " << std::get<2>(counts) << "\n";
-    constexpr auto loopCount = 500;
-    auto total = 0UL;
-
-    for (auto x = 0; x < loopCount; ++x)
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        for (auto const &i : v) {
-            i->operation();
-        }
-
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        total += duration.count();
-    }
-
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
-}
-
-template <typename DistributionType>
-void testFourTypes(DistributionType & distribution)
-{
-    auto v = createRandomVector<decltype(distribution), One, Two, Three, Four>(distribution);
-
-    auto counts = countTypes<One, Two, Three, Four>(v);
-
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    std::cout << "Twos: " << std::get<1>(counts) << "\n";
-    std::cout << "Three: " << std::get<2>(counts) << "\n";
-    std::cout << "Four: " << std::get<3>(counts) << "\n";
-    constexpr auto loopCount = 500;
-    auto total = 0UL;
-
-    for (auto x = 0; x < loopCount; ++x)
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        for (auto const &i : v) {
-            i->operation();
-        }
-
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        total += duration.count();
-    }
-
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
-}
-
-template <typename DistributionType>
-void testFiveTypes(DistributionType & distribution)
-{
-    auto v = createRandomVector<decltype(distribution), One, Two, Three, Four, Five>(distribution);
-
-    auto counts = countTypes<One, Two, Three, Four, Five>(v);
-
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    std::cout << "Twos: " << std::get<1>(counts) << "\n";
-    std::cout << "Three: " << std::get<2>(counts) << "\n";
-    std::cout << "Four: " << std::get<3>(counts) << "\n";
-    std::cout << "Five: " << std::get<4>(counts) << "\n";
-    constexpr auto loopCount = 500;
-    auto total = 0UL;
-
-    for (auto x = 0; x < loopCount; ++x)
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        for (auto const &i : v) {
-            i->operation();
-        }
-
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        total += duration.count();
-    }
-
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
-}
-
-template <typename DistributionType>
-void testTenTypes(DistributionType & distribution)
-{
-    auto v = createRandomVector<decltype(distribution), One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten>(distribution);
-
-    auto counts = countTypes<One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten>(v);
-
-    std::cout << "Ones: " << std::get<0>(counts) << "\n";
-    std::cout << "Twos: " << std::get<1>(counts) << "\n";
-    std::cout << "Three: " << std::get<2>(counts) << "\n";
-    std::cout << "Four: " << std::get<3>(counts) << "\n";
-    std::cout << "Five: " << std::get<4>(counts) << "\n";
-    std::cout << "Six: " << std::get<5>(counts) << "\n";
-    std::cout << "Seven: " << std::get<6>(counts) << "\n";
-    std::cout << "Eight: " << std::get<7>(counts) << "\n";
-    std::cout << "Nine: " << std::get<8>(counts) << "\n";
-    std::cout << "Ten: " << std::get<9>(counts) << "\n";
-    constexpr auto loopCount = 1000;
-    auto total = 0UL;
-
-    for (auto x = 0; x < loopCount; ++x)
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-
-        for (auto const &i : v) {
-            i->operation();
-        }
-
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        total += duration.count();
-    }
-
-    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
+    std::cout << "Average Duration: " << total/gSampleSize << "\n" << std::endl;
 }
 
 int main ()
 {
 
-    std::uniform_int_distribution<> uniformDistribution1{0, 0};
-/*    std::cout << "Testing one type (uniform)" << std::endl;
-    testOneType(uniformDistribution1);
+    std::uniform_int_distribution<> uniform1{0, 0};
+    std::cout << "Testing std::vector with 1 type (uniform distribution)" << std::endl;
+    testStandardVector<decltype(uniform1), One>(uniform1);
 
-    std::uniform_int_distribution<> uniformDistribution2{0, 1};
-    std::cout << "Testing two types (uniform)" << std::endl;
-    testTwoTypes(uniformDistribution2);
+    std::uniform_int_distribution<> uniform2{0, 1};
+    std::cout << "Testing std::vector with 2 types (uniform distribution)" << std::endl;
+    testStandardVector<decltype(uniform2), One, Two>(uniform2);
 
-    std::uniform_int_distribution<> uniformDistribution3{0, 2};
+/*
+    std::uniform_int_distribution<> uniform3{0, 2};
     std::cout << "Testing three types (uniform)" << std::endl;
-    testThreeTypes(uniformDistribution3);
+    testStandardVector<decltype(uniform3), One, Two, Three>(uniform3);
 
-    std::uniform_int_distribution<> uniformDistribution4{0, 3};
+    std::uniform_int_distribution<> uniform4{0, 3};
     std::cout << "Testing four types (uniform)" << std::endl;
-    testFourTypes(uniformDistribution4);
+    testStandardVector<decltype(uniform4), One, Two, Three, Four>(uniform4);
 
-    std::uniform_int_distribution<> uniformDistribution5{0, 4};
+    std::uniform_int_distribution<> uniform5{0, 4};
     std::cout << "Testing five types (uniform)" << std::endl;
-    testFiveTypes(uniformDistribution5);
+    testStandardVector<decltype(uniform5), One, Two, Three, Four, Five>(uniform5);
 
-    std::uniform_int_distribution<> uniformDistribution10{0, 9};
+    std::uniform_int_distribution<> uniform10{0, 9};
     std::cout << "Testing ten types (uniform)" << std::endl;
-    testTenTypes(uniformDistribution10);
+    testStandardVector<decltype(uniform10), One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten>(uniform10);
 
 
-    std::normal_distribution<> normalDistribution1{0, 0};
+    std::normal_distribution<> normal1{0, 0};
     std::cout << "Testing one type (normal)" << std::endl;
-    testOneType(normalDistribution1);
+    testStandardVector<decltype(normal1), One>(normal1);
 
-    std::normal_distribution<> normalDistribution2{0.5, 0.1};
+    std::normal_distribution<> normal2{0.5, 0.1};
     std::cout << "Testing two types (normal)" << std::endl;
-    testTwoTypes(normalDistribution2);
+    testStandardVector<decltype(normal2), One, Two>(normal2);
 
-    std::normal_distribution<> normalDistribution3{1.0, 0.2};
+    std::normal_distribution<> normal3{1.0, 0.2};
     std::cout << "Testing three types (normal)" << std::endl;
-    testThreeTypes(normalDistribution3);
+    testStandardVector<decltype(normal3), One, Two, Three>(normal3);
 
-    std::normal_distribution<> normalDistribution4{1.5, 0.3};
+    std::normal_distribution<> normal4{1.5, 0.3};
     std::cout << "Testing four types (normal)" << std::endl;
-    testFourTypes(normalDistribution4);
+    testStandardVector<decltype(normal4), One, Two, Three, Four>(normal4);
 
-    std::normal_distribution<> normalDistribution5{2, 0.4};
+    std::normal_distribution<> normal5{2, 0.4};
     std::cout << "Testing five types (normal)" << std::endl;
-    testFiveTypes(normalDistribution5);
+    testStandardVector<decltype(normal5), One, Two, Three, Four, Five>(normal5);
 
-    std::normal_distribution<> normalDistribution10{4.5, 0.8};
+    std::normal_distribution<> normal10{4.5, 0.8};
     std::cout << "Testing ten types (normal)" << std::endl;
-    testTenTypes(normalDistribution10);
+    testStandardVector<decltype(normal10), One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten>(normal10);
 */
 
-    testOnePolyType(uniformDistribution1);
 
-    polymorphic_container<std::unique_ptr<PolymorphicBase>,
-                          std::unique_ptr<One>, std::unique_ptr<Two>, std::unique_ptr<Three>> pc;
+    std::cout << "Testing polymorphic_container with 1 type (uniform distribution)" << std::endl;
+    testPolyContainer<decltype(uniform1), One>(uniform1);
+
+//    std::cout << "Testing polymorphic_container with 2 types (uniform distribution)" << std::endl;
+//    testPolyContainer<decltype(uniform2), One, Two>(uniform2);
+
+
+//    polymorphic_container<std::unique_ptr<PolymorphicBase>,
+//                          std::unique_ptr<One>, std::unique_ptr<Two>, std::unique_ptr<Three>> pc;
  
+    //addElementToPolyContainer<decltype(pc), One, Two>(pc, 1);
+
+
+/*
     pc.push_back(std::make_unique<One>());
     pc.push_back(std::make_unique<Three>());
     pc.push_back(std::make_unique<One>());
     pc.push_back(std::make_unique<Two>());
     pc.push_back(std::make_unique<Three>());
+*/
 
 /*
     auto b = pc.begin();
@@ -527,12 +460,14 @@ int main ()
     std::cout << std::boolalpha << (b == e) << std::endl;
 */
 
+/*
     for (auto i = pc.begin(); i != pc.end(); i++)
     {
         //i.printState();
         (*i)->operation();
         (*i)->print();
     }
+*/
 
     //std::cout << std::boolalpha << (b == b2) << std::endl;
     //std::cout << std::boolalpha << (b == e) << std::endl;
