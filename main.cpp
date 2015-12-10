@@ -12,7 +12,7 @@
 
 #include "polymorphic_container.h"
 
-constexpr auto gHowMany = 10000;
+constexpr auto gHowMany = 50000;
 
 struct PolymorphicBase
 {
@@ -119,6 +119,28 @@ std::unique_ptr<PolymorphicBase> createTypeFromIndex(std::size_t index)
     return createTypeFromIndex<Next, Tail...>(index-1);
 }
 
+template <typename Head = void>
+auto createPolyTypeFromIndex(std::size_t)
+{
+    static_assert(!std::is_same<Head, void>::value, "Can't have an empty type list!");
+    std::cout << "only one" << std::endl;
+    return std::unique_ptr<Head>{new Head{}};
+}
+
+template <typename Head, typename Next, typename... Tail>
+auto createPolyTypeFromIndex(std::size_t index)
+{
+std::cout << index << std::endl;
+
+    if (index == 0)
+    {
+        return std::unique_ptr<Head>{new Head{}};
+    }
+
+    return createPolyTypeFromIndex<Next, Tail...>(index-1);
+}
+
+
 
 template <typename DistributionType, typename... ConcreteTypes>
 std::vector<std::unique_ptr<PolymorphicBase>> createRandomVector (DistributionType & distribution)
@@ -135,6 +157,34 @@ std::vector<std::unique_ptr<PolymorphicBase>> createRandomVector (DistributionTy
     });
 
     return v;
+}
+
+template <typename DistributionType, typename... ConcreteTypes>
+polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<ConcreteTypes>...> createRandomPolyVector (DistributionType & distribution)
+{
+    auto v = polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<ConcreteTypes>...>{}; // gHowMany ???
+
+    std::cout << "Say What" << std::endl;
+
+    std::mt19937 engine{};
+
+    for (auto i = 0; i < 1; ++i)
+    {
+        const auto which = std::lround(distribution(engine));
+        auto p = createPolyTypeFromIndex<ConcreteTypes...>(which);
+        std::cout << "Doing " << i << std::endl;
+        //v.push_back(createPolyTypeFromIndex<ConcreteTypes...>(which));
+        v.push_back(p);
+    }
+/*
+    std::generate(v.begin(), v.end(), [&]()
+    {
+        const auto which = std::lround(distribution(engine));
+        return createTypeFromIndex<ConcreteTypes...>(which);
+    });
+    */
+
+    return v;    
 }
 
 template <typename Head>
@@ -159,6 +209,28 @@ auto countTypes (std::vector<std::unique_ptr<PolymorphicBase>> const & v)
     return std::tuple_cat(std::make_tuple(count), countTypes<Next, Tail...>(v));
 }
 
+template <typename Head>
+std::tuple<long> countPolyTypes (polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<Head>> const & v)
+{
+    auto count = std::count_if(v.begin(), v.end(), [](std::unique_ptr<PolymorphicBase> const & p)
+    {
+        return dynamic_cast<Head*>(p.get()) != nullptr;
+    });
+    return std::make_tuple(count);
+}
+
+template <typename Head, typename Next, typename... Tail>
+auto countPolyTypes (polymorphic_container<std::unique_ptr<PolymorphicBase>, std::unique_ptr<Head>, std::unique_ptr<Next>, std::unique_ptr<Tail>...> const & v)
+    -> decltype(std::tuple_cat(std::make_tuple(1L), countTypes<Next, Tail...>(v)))
+{
+    auto count = std::count_if(v.begin(), v.end(), [](std::unique_ptr<PolymorphicBase> const & p)
+    {
+        return dynamic_cast<Head*>(p.get()) != nullptr;
+    });
+
+    return std::tuple_cat(std::make_tuple(count), countPolyTypes<Next, Tail...>(v));
+}
+
 template <typename DistributionType>
 void testOneType(DistributionType & distribution)
 {
@@ -176,6 +248,37 @@ void testOneType(DistributionType & distribution)
 
         for (auto const &i : v) {
             i->operation();
+        }
+
+        auto stop = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+        total += duration.count();
+    }
+
+    std::cout << "Average Duration: " << total/loopCount << "\n" << std::endl;
+}
+
+template <typename DistributionType>
+void testOnePolyType(DistributionType & distribution)
+{
+    std::cout << "Oh Please" << std::endl;
+    auto v = createRandomPolyVector<DistributionType, One>(distribution);
+
+    auto counts = countPolyTypes<One>(v);
+
+    std::cout << "Ones: " << std::get<0>(counts) << "\n";
+    constexpr auto loopCount = 500;
+    auto total = 0UL;
+
+    for (auto x = 0; x < loopCount; ++x)
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+
+        auto end = v.end();
+
+        for (auto i = v.begin(); i != end; ++i) {
+            i.printState();
+            (*i)->operation();
         }
 
         auto stop = std::chrono::high_resolution_clock::now();
@@ -321,7 +424,7 @@ void testTenTypes(DistributionType & distribution)
     std::cout << "Eight: " << std::get<7>(counts) << "\n";
     std::cout << "Nine: " << std::get<8>(counts) << "\n";
     std::cout << "Ten: " << std::get<9>(counts) << "\n";
-    constexpr auto loopCount = 500;
+    constexpr auto loopCount = 1000;
     auto total = 0UL;
 
     for (auto x = 0; x < loopCount; ++x)
@@ -342,9 +445,9 @@ void testTenTypes(DistributionType & distribution)
 
 int main ()
 {
-/*
+
     std::uniform_int_distribution<> uniformDistribution1{0, 0};
-    std::cout << "Testing one type (uniform)" << std::endl;
+/*    std::cout << "Testing one type (uniform)" << std::endl;
     testOneType(uniformDistribution1);
 
     std::uniform_int_distribution<> uniformDistribution2{0, 1};
@@ -366,8 +469,8 @@ int main ()
     std::uniform_int_distribution<> uniformDistribution10{0, 9};
     std::cout << "Testing ten types (uniform)" << std::endl;
     testTenTypes(uniformDistribution10);
-*/
-/*
+
+
     std::normal_distribution<> normalDistribution1{0, 0};
     std::cout << "Testing one type (normal)" << std::endl;
     testOneType(normalDistribution1);
@@ -393,14 +496,48 @@ int main ()
     testTenTypes(normalDistribution10);
 */
 
+    testOnePolyType(uniformDistribution1);
+
     polymorphic_container<std::unique_ptr<PolymorphicBase>,
                           std::unique_ptr<One>, std::unique_ptr<Two>, std::unique_ptr<Three>> pc;
  
     pc.push_back(std::make_unique<One>());
     pc.push_back(std::make_unique<Three>());
-    //pc.push_back(std::make_unique<One>());
+    pc.push_back(std::make_unique<One>());
     pc.push_back(std::make_unique<Two>());
+    pc.push_back(std::make_unique<Three>());
 
+/*
+    auto b = pc.begin();
+    b.printState();
+    ++b;
+    b.printState();
+    b++;
+    b.printState();
+    //b++;
+    //b.printState();
+
+    auto b2 = pc.begin();
+
+    auto e = pc.end();
+    e.printState();
+    e++;
+    e.printState();
+
+    std::cout << std::boolalpha << (b == e) << std::endl;
+*/
+
+    for (auto i = pc.begin(); i != pc.end(); i++)
+    {
+        //i.printState();
+        (*i)->operation();
+        (*i)->print();
+    }
+
+    //std::cout << std::boolalpha << (b == b2) << std::endl;
+    //std::cout << std::boolalpha << (b == e) << std::endl;
+
+/*
     decltype(pc)::iterator i(pc);
     (*i)->operation();
     (*i)->print();
@@ -422,7 +559,7 @@ i++;
 ++i;
     (*i)->operation();
     (*i)->print();
-
+*/
     return 0;
 }
 

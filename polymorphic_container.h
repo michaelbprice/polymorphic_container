@@ -35,10 +35,10 @@ public:
 	template <typename U>
 	void push_back (U && value)
 	{
-		static_assert(is_one_of<U, DerivedTypes...>::value, "You cannot push_back one of those types here.");
+		static_assert(is_one_of<typename std::remove_reference<U>::type, DerivedTypes...>::value, "You cannot push_back one of those types here.");
 		// check actual derivations????
 
-		data[typeid(U)].push_back(std::forward<U>(value));
+		data[typeid(U)].push_back(static_cast<BaseType>(std::forward<U>(value)));
 
 		for (const auto & t : data)
 		{
@@ -52,14 +52,22 @@ public:
 
 	struct iterator : public std::iterator<std::input_iterator_tag, BaseType>
 	{
-		polymorphic_container<BaseType, DerivedTypes...> & stuff;
+		const polymorphic_container<BaseType, DerivedTypes...> & stuff;
 
 		std::vector<std::type_index> keys;
 		std::size_t keyIndex = 0;
 		std::size_t valueIndex = 0;
 
-		iterator(polymorphic_container<BaseType, DerivedTypes...> & _stuff)
+		bool isEnd;
+
+		void printState()
+		{
+			std::cout << keyIndex << " " << valueIndex << std::boolalpha << isEnd << "\n";
+		}
+
+		iterator(const polymorphic_container<BaseType, DerivedTypes...> & _stuff, bool end = false)
 		: stuff{_stuff}
+		, isEnd{end}
 		{
 			auto keyIterator = stuff.data.cbegin();
 
@@ -69,52 +77,103 @@ public:
 			}
 		}
 
+		// define copy constructor... 
+
 		iterator operator++ ()
 		{
-			if (valueIndex < stuff.data[keys[keyIndex]].size() - 1)
+			if (!isEnd)
 			{
-				valueIndex += 1;
-				return *this;
+				if (valueIndex < stuff.data.at(keys[keyIndex]).size() - 1)
+				{
+					valueIndex += 1;
+					return *this;
+				}
+				else if (keyIndex < stuff.data.size() - 1)
+				{
+					keyIndex += 1;
+					valueIndex = 0;
+					return *this;
+				}
 			}
-			else if (keyIndex < stuff.data.size() - 1)
-			{
-				keyIndex += 1;
-				valueIndex = 0;
-				return *this;
-			}
-			else
-			{
-				return *this;
-			}
+
+			return iterator{stuff, true};
 		}
 
 		iterator operator++ (int)
 		{
 			auto me = *this;
 
-			if (valueIndex < stuff.data[keys[keyIndex]].size() - 1)
+			if (!isEnd)
 			{
-				valueIndex += 1;
+				if (valueIndex < stuff.data.at(keys[keyIndex]).size() - 1)
+				{
+					valueIndex += 1;
 
-			}
-			else if (keyIndex < stuff.data.size() - 1)
-			{
-				keyIndex += 1;
-				valueIndex = 0;
+				}
+				else if (keyIndex < stuff.data.size() - 1)
+				{
+					keyIndex += 1;
+					valueIndex = 0;
+				}
+				else
+				{
+					keyIndex = 0;
+					valueIndex = 0;
+					isEnd = true;
+				}
 			}
 
 			return me;	
 		}
 
-		BaseType & operator* ()
+		auto & operator* ()
 		{
-			return stuff.data[keys[keyIndex]][valueIndex];
+			return stuff.data.at(keys[keyIndex])[valueIndex];
+		}
+
+		bool operator== (iterator const & other)
+		{
+			if (&stuff != &other.stuff) return false;
+			if (isEnd != other.isEnd) return false;
+			if (keys != other.keys) return false;
+			if (keyIndex != other.keyIndex) return false;
+			if (valueIndex != other.valueIndex) return false;
+
+			return true;
+		}
+
+		bool operator!= (iterator const & other)
+		{
+			return !(*this == other);
 		}
 	};
 
 
+    iterator begin() const
+    {
+    	return iterator{*this, false};
+    }
+
+    iterator end() const
+    {
+    	return iterator{*this, true};
+    }
+
 
 };
+
+/*
+operator==(polymorphic_container<unique_ptr<PolymorphicBase>, unique_ptr<One>, unique_ptr<Two>, unique_ptr<Three> >::iterator const&,
+	       polymorphic_container<unique_ptr<PolymorphicBase>, unique_ptr<One>, unique_ptr<Two>, unique_ptr<Three> >::iterator const&)
+*/
+/*
+template <typename BaseType, typename ... DerivedTypes >
+bool operator== (typename polymorphic_container<BaseType, DerivedTypes...>::iterator const & l,
+	             typename polymorphic_container<BaseType, DerivedTypes...>::iterator const & r)
+{
+	return true;
+}
+*/
 
 
 
